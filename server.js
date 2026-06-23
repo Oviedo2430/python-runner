@@ -9,10 +9,7 @@ fastify.addHook('onRequest', (req, reply, done) => {
   reply.header('Access-Control-Allow-Origin', '*')
   reply.header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
   reply.header('Access-Control-Allow-Headers', 'Content-Type')
-  if (req.method === 'OPTIONS') {
-    reply.code(204).send()
-    return
-  }
+  if (req.method === 'OPTIONS') { reply.code(204).send(); return }
   done()
 })
 
@@ -20,12 +17,11 @@ fastify.post('/execute', async (req, reply) => {
   const { code } = req.body
   if (!code || typeof code !== 'string') return reply.code(400).send({ error: 'Falta el código' })
   if (code.length > 10000) return reply.code(400).send({ error: 'Código demasiado largo' })
-  const id = randomUUID()
-  const file = path.join(os.tmpdir(), `${id}.py`)
+  const file = path.join(os.tmpdir(), `${randomUUID()}.py`)
   try {
     writeFileSync(file, code, 'utf8')
-    const output = await runPython(file)
-    return reply.send({ stdout: output.stdout, stderr: output.stderr })
+    const result = await runPython(file)
+    return reply.send(result)
   } catch (e) {
     return reply.send({ stdout: '', stderr: e.message })
   } finally {
@@ -44,8 +40,7 @@ function runPython(file) {
 
 fastify.get('/health', async () => ({ ok: true }))
 
-const PORT = process.env.PORT || 4000
-fastify.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
+fastify.listen({ port: 4000, host: '0.0.0.0' }, (err) => {
   if (err) { console.error(err); process.exit(1) }
-  console.log(`Python runner en puerto ${PORT}`)
+  console.log('Python runner en puerto 4000')
 })
