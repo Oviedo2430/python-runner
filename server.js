@@ -14,13 +14,14 @@ fastify.addHook('onRequest', (req, reply, done) => {
 })
 
 fastify.post('/execute', async (req, reply) => {
-  const { code } = req.body
+  const { code, stdin = '' } = req.body
   if (!code || typeof code !== 'string') return reply.code(400).send({ error: 'Falta el código' })
   if (code.length > 10000) return reply.code(400).send({ error: 'Código demasiado largo' })
+
   const file = path.join(os.tmpdir(), `${randomUUID()}.py`)
   try {
     writeFileSync(file, code, 'utf8')
-    const result = await runPython(file)
+    const result = await runPython(file, stdin)
     return reply.send(result)
   } catch (e) {
     return reply.send({ stdout: '', stderr: e.message })
@@ -29,12 +30,25 @@ fastify.post('/execute', async (req, reply) => {
   }
 })
 
-function runPython(file) {
+function runPython(file, stdin) {
   return new Promise((resolve) => {
-    execFile('python3', [file], { timeout: 8000, maxBuffer: 1024 * 64 }, (err, stdout, stderr) => {
-      if (err && err.killed) resolve({ stdout: '', stderr: '⏱️ Tiempo límite superado (8s).' })
-      else resolve({ stdout: stdout || '', stderr: stderr || (err ? err.message : '') })
-    })
+    const proc = execFile(
+      'python3', ['-u', file],
+      { timeout: 10000, maxBuffer: 1024 * 64 },
+      (err, stdout, stderr) => {
+        if (err && err.killed) {
+          resolve({ stdout, stderr: '⏱️ Tiempo límite superado (10s).' })
+        } else {
+          resolve({ stdout: stdout || '', stderr: stderr || (err ? err.message : '') })
+        }
+      }
+    )
+    // Pasar stdin si existe
+    if (stdin && stdin.trim()) {
+      const stdinFinal = stdin.endsWith('\n') ? stdin : stdin + '\n'
+      proc.stdin.write(stdinFinal)
+    }
+    proc.stdin.end()
   })
 }
 
