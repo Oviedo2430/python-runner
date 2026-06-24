@@ -1,5 +1,5 @@
 const fastify = require('fastify')({ logger: false })
-const { execFile } = require('child_process')
+const { spawn } = require('child_process')
 const { writeFileSync, unlinkSync } = require('fs')
 const { randomUUID } = require('crypto')
 const path = require('path')
@@ -19,6 +19,7 @@ fastify.post('/execute', async (req, reply) => {
   if (code.length > 10000) return reply.code(400).send({ error: 'Código demasiado largo' })
 
   const file = path.join(os.tmpdir(), `${randomUUID()}.py`)
+
   try {
     writeFileSync(file, code, 'utf8')
     const result = await runPython(file, stdin)
@@ -32,21 +33,37 @@ fastify.post('/execute', async (req, reply) => {
 
 function runPython(file, stdin) {
   return new Promise((resolve) => {
-    const proc = execFile(
-      'python3', ['-u', file],
-      { timeout: 10000, maxBuffer: 1024 * 64 },
-      (err, stdout, stderr) => {
-        if (err && err.killed) {
-          resolve({ stdout, stderr: '⏱️ Tiempo límite superado (10s).' })
-        } else {
-          resolve({ stdout: stdout || '', stderr: stderr || (err ? err.message : '') })
-        }
+    let stdout = ''
+    let stderr = ''
+    let finished = false
+
+    const proc = spawn('python3', ['-u', file], {
+      timeout: 10000,
+    })
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true
+        proc.kill('SIGKILL')
+        resolve({ stdout, stderr: '⏱️ Tiempo límite superado (10s).' })
       }
-    )
-    // Pasar stdin si existe
+    }, 10000)
+
+    proc.stdout.on('data', (data) => { stdout += data.toString() })
+    proc.stderr.on('data', (data) => { stderr += data.toString() })
+
+    proc.on('close', () => {
+      if (!finished) {
+        finished = true
+        clearTimeout(timer)
+        resolve({ stdout, stderr })
+      }
+    })
+
+    // Escribir stdin y cerrarlo
     if (stdin && stdin.trim()) {
-      const stdinFinal = stdin.endsWith('\n') ? stdin : stdin + '\n'
-      proc.stdin.write(stdinFinal)
+      const lines = stdin.trim().split('\n').join('\n')
+      proc.stdin.write(lines + '\n')
     }
     proc.stdin.end()
   })
